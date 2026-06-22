@@ -13,6 +13,8 @@ import com.example.data.model.TextClip
 import com.example.data.model.VideoClip
 import com.example.data.model.VideoProject
 import com.example.data.repository.ProjectRepository
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,10 +36,35 @@ enum class EditorTab {
 class VideoEditorViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: ProjectRepository
+    private val moshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
 
     init {
         val database = ProjectDatabase.getDatabase(application)
         repository = ProjectRepository(database.projectDao)
+    }
+
+    fun exportProject(project: VideoProject): String {
+        return try {
+            val adapter = moshi.adapter(VideoProject::class.java)
+            adapter.toJson(project)
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    fun importProject(jsonStr: String): Boolean {
+        return try {
+            val adapter = moshi.adapter(VideoProject::class.java)
+            val imported = adapter.fromJson(jsonStr) ?: return false
+            viewModelScope.launch {
+                val cleanProject = imported.copy(id = 0L, lastModified = System.currentTimeMillis())
+                repository.insertProject(cleanProject)
+                showToast("Project '${cleanProject.name}' imported successfully!")
+            }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     // Projects list
@@ -200,7 +227,14 @@ class VideoEditorViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     // --- Create New Project ---
-    fun createProject(name: String, aspect: String = "16:9") {
+    fun createProject(
+        name: String,
+        aspect: String = "16:9",
+        chosenVideoName: String = "Vlog Talking Scene",
+        chosenColorStr: Long = 0xFF5D4037, // Brown
+        chosenDurationSec: Int = 6,
+        chosenMediaUrl: String = "vlog"
+    ) {
         viewModelScope.launch {
             val (w, h) = when (aspect) {
                 "9:16" -> Pair(1080, 1920)
@@ -209,56 +243,38 @@ class VideoEditorViewModel(application: Application) : AndroidViewModel(applicat
                 else -> Pair(1920, 1080)
             }
 
-            // Put a baseline video track with 3 primary clips
+            // Put a starter main video track with the user's chosen clip
             val baseClips = listOf(
                 VideoClip(
                     id = "v_clip_1",
-                    name = "Epic Sunset Intro",
-                    mediaUrl = "sunset",
-                    placeholderColor = 0xFFFFA000, // Vibrant Amber
+                    name = chosenVideoName,
+                    mediaUrl = chosenMediaUrl,
+                    placeholderColor = chosenColorStr,
                     startInTimelineMs = 0L,
-                    durationMs = 5000L,
-                    filterType = "None"
-                ),
-                VideoClip(
-                    id = "v_clip_2",
-                    name = "Vlog Talking Scene",
-                    mediaUrl = "vlog",
-                    placeholderColor = 0xFF5D4037, // Brown
-                    startInTimelineMs = 5000L,
-                    durationMs = 6000L,
-                    filterType = "None"
-                ),
-                VideoClip(
-                    id = "v_clip_3",
-                    name = "Cinematic Outro Drone",
-                    mediaUrl = "drone",
-                    placeholderColor = 0xFF0288D1, // Ocean Blue
-                    startInTimelineMs = 11000L,
-                    durationMs = 4000L,
+                    durationMs = chosenDurationSec * 1000L,
                     filterType = "None"
                 )
             )
 
-            // Baseline audio track
+            // Baseline audio track matching the duration
             val baseAudio = listOf(
                 AudioClip(
                     id = "a_clip_1",
                     name = "Vlog Upbeat Synth Beat",
                     audioUrl = "music_1",
                     startInTimelineMs = 0L,
-                    durationMs = 15000L,
+                    durationMs = chosenDurationSec * 1000L,
                     volume = 0.5f
                 )
             )
 
-            // Baseline animated text
+            // Baseline welcome text
             val baseText = listOf(
                 TextClip(
                     id = "t_clip_1",
-                    text = "Welcome to Cut Pro",
-                    startInTimelineMs = 1000L,
-                    durationMs = 3000L,
+                    text = "Welcome to KineMaster Cut",
+                    startInTimelineMs = 500L,
+                    durationMs = (chosenDurationSec * 1000L - 1000L).coerceAtLeast(1000L),
                     fontName = "Sans-Serif",
                     fontColor = 0xFFFFFFFF,
                     animationType = "Spring Pop"
@@ -270,7 +286,7 @@ class VideoEditorViewModel(application: Application) : AndroidViewModel(applicat
                 width = w,
                 height = h,
                 aspectRatio = aspect,
-                durationMs = 15000L,
+                durationMs = chosenDurationSec * 1000L,
                 videoClipsJson = repository.serializeVideoClips(baseClips),
                 audioClipsJson = repository.serializeAudioClips(baseAudio),
                 textClipsJson = repository.serializeTextClips(baseText),
@@ -280,7 +296,7 @@ class VideoEditorViewModel(application: Application) : AndroidViewModel(applicat
             val id = repository.insertProject(newProj)
             val insertedProject = newProj.copy(id = id)
             selectProject(insertedProject)
-            showToast("Project '$name' created successfully!")
+            showToast("Project '$name' created with starter clip '$chosenVideoName'!")
         }
     }
 
@@ -370,6 +386,34 @@ class VideoEditorViewModel(application: Application) : AndroidViewModel(applicat
                 showToast("Trimmed clip end")
             }
         }
+    }
+
+    // Add custom standard Video segment to timelines
+    fun addVideoClip(name: String, durationSec: Int, color: Long) {
+        val durationMs = durationSec * 1000L
+        val startPos = _playbackPosition.value
+        val newClip = VideoClip(
+            id = "v_clip_${System.currentTimeMillis()}",
+            name = name,
+            mediaUrl = "custom_clip",
+            placeholderColor = color,
+            startInTimelineMs = startPos,
+            durationMs = durationMs,
+            filterType = "None"
+        )
+        videoClips.add(newClip)
+
+        val currentProj = _currentProject.value
+        if (currentProj != null) {
+            val clipEnd = startPos + durationMs
+            if (clipEnd > currentProj.durationMs) {
+                _currentProject.value = currentProj.copy(durationMs = clipEnd)
+            }
+        }
+
+        _selectedClipId.value = newClip.id
+        saveCurrentState()
+        showToast("Added custom video segment: '$name'")
     }
 
     // Add Overlay PIP Video

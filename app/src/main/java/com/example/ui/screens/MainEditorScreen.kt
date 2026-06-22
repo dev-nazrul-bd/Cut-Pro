@@ -61,9 +61,12 @@ fun MainEditorScreen(
             // Project Lobby / Landing
             ProjectLobbyView(
                 projects = projects,
-                onCreateProject = { name, aspect -> viewModel.createProject(name, aspect) },
+                onCreateProject = { name, aspect, vName, vColor, vDuration, vUrl ->
+                    viewModel.createProject(name, aspect, vName, vColor, vDuration, vUrl)
+                },
                 onSelectProject = { proj -> viewModel.selectProject(proj) },
-                onDeleteProject = { proj -> viewModel.deleteProject(proj) }
+                onDeleteProject = { proj -> viewModel.deleteProject(proj) },
+                onImportProject = { json -> viewModel.importProject(json) }
             )
         } else {
             // Workspace Application Editor
@@ -103,17 +106,26 @@ fun MainEditorScreen(
     }
 }
 
+data class Quad<out A, out B, out C, out D>(
+    val name: A,
+    val color: B,
+    val mediaUrl: C,
+    val durationSec: D
+)
+
 // ==========================================
 // 1. PROJECT LOBBY VIEW (LANDING BOARD)
 // ==========================================
 @Composable
 fun ProjectLobbyView(
     projects: List<VideoProject>,
-    onCreateProject: (String, String) -> Unit,
+    onCreateProject: (String, String, String, Long, Int, String) -> Unit,
     onSelectProject: (VideoProject) -> Unit,
-    onDeleteProject: (VideoProject) -> Unit
+    onDeleteProject: (VideoProject) -> Unit,
+    onImportProject: (String) -> Unit
 ) {
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showImportDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -171,21 +183,43 @@ fun ProjectLobbyView(
                     }
                 }
 
-                IconButton(
-                    onClick = { showCreateDialog = true },
-                    modifier = Modifier
-                        .size(46.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            CircleShape
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Import Project Button
+                    IconButton(
+                        onClick = { showImportDialog = true },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                CircleShape
+                            )
+                            .testTag("import_project_indicator_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Import Project JSON",
+                            tint = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.size(20.dp)
                         )
-                        .testTag("add_project_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New Project",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                    }
+
+                    // Create Project Button
+                    IconButton(
+                        onClick = { showCreateDialog = true },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                CircleShape
+                            )
+                            .testTag("add_project_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Project",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
@@ -436,6 +470,16 @@ fun ProjectLobbyView(
     if (showCreateDialog) {
         var projName by remember { mutableStateOf("") }
         var selectedAspect by remember { mutableStateOf("16:9") }
+        var selectedVideoIndex by remember { mutableStateOf(0) }
+
+        val starterVideos = listOf(
+            // Triple: Name, Color, mediaUrl, DurationSec
+            Quad("Sunset Cinematic Intro", 0xFFFFA000, "sunset", 5),
+            Quad("Vlog Talking Portrait", 0xFF5D4037, "vlog", 6),
+            Quad("Nature Mountain Drone", 0xFF0288D1, "drone", 4),
+            Quad("Sunny Beach Cruise", 0xFF00E5FF, "beach", 8),
+            Quad("Retro Gaming Showcase", 0xFF9C27B0, "gaming", 10)
+        )
 
         Dialog(onDismissRequest = { showCreateDialog = false }) {
             Card(
@@ -443,24 +487,24 @@ fun ProjectLobbyView(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(8.dp)
+                    .padding(4.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier.padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Initialize Project",
+                        text = "Create Video Project",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     TextField(
                         value = projName,
                         onValueChange = { projName = it },
-                        placeholder = { Text("E.g., Summer Vlog 2026") },
+                        placeholder = { Text("E.g., My Awesome Vlog") },
                         label = { Text("Project Name") },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -471,20 +515,20 @@ fun ProjectLobbyView(
                         )
                     )
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Choose Aspect Ratio",
-                        fontSize = 13.sp,
+                        text = "1. Choose Aspect Ratio",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.align(Alignment.Start)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     // Row of aspect ratio chips
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf(
                             Pair("16:9", "Wide"),
@@ -498,25 +542,79 @@ fun ProjectLobbyView(
                                 leadingIcon = {
                                     Box(
                                         modifier = Modifier
-                                            .size(14.dp)
-                                            .border(1.dp, if (selectedAspect == aspect) Color.White else MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
+                                            .size(10.dp)
+                                            .border(1.dp, if (selectedAspect == aspect) Color.White else MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
                                     )
                                 },
                                 label = { Column {
-                                    Text(aspect, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    Text(desc, fontSize = 8.sp)
+                                    Text(aspect, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Text(desc, fontSize = 7.sp)
                                 } },
                                 modifier = Modifier.weight(1f)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "2. Select Starter Main Video",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Scrollable Select Starter Video List
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        starterVideos.forEachIndexed { idx, item ->
+                            val isSelected = selectedVideoIndex == idx
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.secondaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { selectedVideoIndex = idx }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(item.color))
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(item.name, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("Source: ${item.mediaUrl}.mp4", fontSize = 8.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                }
+                                Text("${item.durationSec}s", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
                         onClick = {
                             val finalName = projName.ifEmpty { "My Video ${System.currentTimeMillis() % 1000}" }
-                            onCreateProject(finalName, selectedAspect)
+                            val chosen = starterVideos[selectedVideoIndex]
+                            onCreateProject(finalName, selectedAspect, chosen.name, chosen.color, chosen.durationSec, chosen.mediaUrl)
                             showCreateDialog = false
                         },
                         modifier = Modifier
@@ -524,7 +622,85 @@ fun ProjectLobbyView(
                             .testTag("dialog_confirm_create_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Launch Canvas")
+                        Text("Create Workspace")
+                    }
+                }
+            }
+        }
+    }
+
+    // IMPORT DRAFT PROJECT DIALOG
+    if (showImportDialog) {
+        var pastedJson by remember { mutableStateOf("") }
+
+        Dialog(onDismissRequest = { showImportDialog = false }) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Import Project Backup",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Paste the project backup JSON data below to open your timeline.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    TextField(
+                        value = pastedJson,
+                        onValueChange = { pastedJson = it },
+                        placeholder = { Text("Paste project JSON structure here...") },
+                        label = { Text("Project JSON Data") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent
+                        ),
+                        maxLines = 8
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showImportDialog = false },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Cancel")
+                        }
+
+                        Button(
+                            onClick = {
+                                if (pastedJson.trim().isNotEmpty()) {
+                                    onImportProject(pastedJson)
+                                    showImportDialog = false
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Import")
+                        }
                     }
                 }
             }
@@ -587,6 +763,7 @@ fun VideoWorkspaceView(
     val autoCaptionsActive by viewModel.isGeneratingCaptions.collectAsStateWithLifecycle()
 
     var showExportModal by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -851,6 +1028,55 @@ fun VideoWorkspaceView(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center
                         )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val jsonStr = remember { viewModel.exportProject(project) }
+
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Project Backup Configuration",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Copy/Backup this workflow structure to re-load it later.",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = {
+                                        val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clipData = android.content.ClipData.newPlainText("CutPro Project", jsonStr)
+                                        clipboardManager.setPrimaryClip(clipData)
+                                        viewModel.showToast("Project JSON backup copied to clipboard!")
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Copy JSON Backup", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(20.dp))
 
                         Text(
@@ -1673,43 +1899,205 @@ fun BottomContextEditWorkspace(
         when (activeTab) {
             EditorTab.CLIP -> {
                 if (currentClip != null) {
-                    Text("Transform Segment: ${currentClip.name}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(onClick = { viewModel.updateClipRotation(rotateAngle = currentClip.rotation + 90f) }) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Rotate 90°", fontSize = 11.sp)
+                        Text("Transform Segment: ${currentClip.name}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(onClick = { viewModel.updateClipRotation(rotateAngle = currentClip.rotation + 90f) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Rotate 90°", fontSize = 10.sp)
+                            }
+                            Button(onClick = { viewModel.updateClipRotation(flipH = !currentClip.flipHorizontal) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Flip Horiz", fontSize = 10.sp)
+                            }
+                            Button(onClick = { viewModel.updateClipRotation(flipV = !currentClip.flipVertical) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(12.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Flip Vert", fontSize = 10.sp)
+                            }
                         }
-                        Button(onClick = { viewModel.updateClipRotation(flipH = !currentClip.flipHorizontal) }) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Flip Horiz", fontSize = 11.sp)
+                        
+                        // Zoom Crop slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Crop & Zoom: ", fontSize = 10.sp, modifier = Modifier.width(80.dp))
+                            Slider(
+                                value = currentClip.scale,
+                                onValueChange = { viewModel.updateClipScalePos(it) },
+                                valueRange = 0.5f..3.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(String.format("%.1fx", currentClip.scale), fontSize = 10.sp)
                         }
-                        Button(onClick = { viewModel.updateClipRotation(flipV = !currentClip.flipVertical) }) {
-                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Flip Vert", fontSize = 11.sp)
+
+                        // Color correction adjustments
+                        Text("Color Correction (M3 Style)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Brightness: ", fontSize = 10.sp, modifier = Modifier.width(80.dp))
+                            Slider(
+                                value = currentClip.brightness,
+                                onValueChange = { viewModel.updateClipColorCorrection(it, currentClip.contrast, currentClip.saturation) },
+                                valueRange = -1.0f..1.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(String.format("%.1f", currentClip.brightness), fontSize = 10.sp)
                         }
-                    }
-                    // Zoom Crop slider
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Crop & Zoom: ", fontSize = 11.sp)
-                        Slider(
-                            value = currentClip.scale,
-                            onValueChange = { viewModel.updateClipScalePos(it) },
-                            valueRange = 0.5f..3.0f,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(String.format("%.1fx", currentClip.scale), fontSize = 11.sp)
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Contrast: ", fontSize = 10.sp, modifier = Modifier.width(80.dp))
+                            Slider(
+                                value = currentClip.contrast,
+                                onValueChange = { viewModel.updateClipColorCorrection(currentClip.brightness, it, currentClip.saturation) },
+                                valueRange = 0.5f..2.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(String.format("%.1f", currentClip.contrast), fontSize = 10.sp)
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Saturation: ", fontSize = 10.sp, modifier = Modifier.width(80.dp))
+                            Slider(
+                                value = currentClip.saturation,
+                                onValueChange = { viewModel.updateClipColorCorrection(currentClip.brightness, currentClip.contrast, it) },
+                                valueRange = 0.0f..2.0f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(String.format("%.1f", currentClip.saturation), fontSize = 10.sp)
+                        }
+
+                        // Transition effects
+                        Text("Transition Entrance Effect", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("None", "Cross Dissolve", "Fade to Black", "Zoom In", "Slide Wipe").forEach { trans ->
+                                FilterChip(
+                                    selected = currentClip.transitionType == trans,
+                                    onClick = { viewModel.updateClipTransition(trans, currentClip.transitionDurationMs) },
+                                    label = { Text(trans, fontSize = 9.sp) }
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Transition Duration: ", fontSize = 10.sp, modifier = Modifier.width(110.dp))
+                            Slider(
+                                value = currentClip.transitionDurationMs.toFloat(),
+                                onValueChange = { viewModel.updateClipTransition(currentClip.transitionType, it.toLong()) },
+                                valueRange = 100f..2000f,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("${currentClip.transitionDurationMs}ms", fontSize = 10.sp)
+                        }
+
+                        // Clip Blending modes
+                        Text("Clip Layer Blend Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten").forEach { mode ->
+                                FilterChip(
+                                    selected = currentClip.blendMode == mode,
+                                    onClick = { viewModel.updateClipBlendMode(mode) },
+                                    label = { Text(mode, fontSize = 9.sp) }
+                                )
+                            }
+                        }
                     }
                 } else {
-                    SelectClipHelperTip("video segment")
+                    var newClipName by remember { mutableStateOf("New Scene") }
+                    var newDurationText by remember { mutableStateOf("5") }
+                    var chosenColor by remember { mutableStateOf(0xFF00E5FF) } // Cyan default
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth().padding(8.dp)
+                    ) {
+                        Text(
+                            text = "Add Custom Video/Image Segment",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TextField(
+                                value = newClipName,
+                                onValueChange = { newClipName = it },
+                                label = { Text("Clip Name", fontSize = 10.sp) },
+                                textStyle = TextStyle(fontSize = 11.sp),
+                                modifier = Modifier.weight(1.5f),
+                                maxLines = 1
+                            )
+
+                            TextField(
+                                value = newDurationText,
+                                onValueChange = { newDurationText = it },
+                                label = { Text("Secs", fontSize = 10.sp) },
+                                textStyle = TextStyle(fontSize = 11.sp),
+                                modifier = Modifier.weight(0.8f),
+                                maxLines = 1
+                            )
+
+                            Button(
+                                onClick = {
+                                    val durationSec = newDurationText.toIntOrNull() ?: 5
+                                    viewModel.addVideoClip(newClipName, durationSec, chosenColor.toLong())
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("+ Add", fontSize = 11.sp)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(
+                                0xFF00E5FF, // Cyan
+                                0xFFFF4081, // Pink
+                                0xFFFFEB3B, // Yellow
+                                0xFF4CAF50, // Green
+                                0xFF9C27B0, // Purple
+                                0xFF3F51B5  // Blue
+                            ).forEach { colorHex ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(colorHex))
+                                        .border(2.dp, if (chosenColor == colorHex) Color.White else Color.Transparent, CircleShape)
+                                        .clickable { chosenColor = colorHex }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1735,7 +2123,22 @@ fun BottomContextEditWorkspace(
                 }
                 if (currentClip?.isPIP == true) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text("Selected PIP blending: ${currentClip.blendMode}", fontSize = 10.sp)
+                    Text("PIP Blending Modes", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("Normal", "Multiply", "Screen", "Overlay", "Darken", "Lighten").forEach { mode ->
+                            FilterChip(
+                                selected = currentClip.blendMode == mode,
+                                onClick = { viewModel.updateClipBlendMode(mode) },
+                                label = { Text(mode, fontSize = 9.sp) }
+                            )
+                        }
+                    }
                 }
             }
 
