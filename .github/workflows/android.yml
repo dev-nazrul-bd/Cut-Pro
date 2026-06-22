@@ -53,6 +53,14 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Generate Gradle Wrapper if Missing
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "Gradlew not found! Generating Gradle wrapper..."
+            gradle wrapper --gradle-version 8.7
+          fi
+          chmod +x gradlew
+
       - name: Extract App Version
         id: get_version
         run: |
