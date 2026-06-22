@@ -39,15 +39,23 @@ jobs:
             touch .env
           fi
 
-      - name: Decode Debug Keystore
+      - name: Decode Debug Keystore or Generate Fallback
         run: |
           if [ -f "debug.keystore.base64" ]; then
             echo "Decoding debug.keystore.base64..."
-            base64 -d debug.keystore.base64 > debug.keystore
+            # Try to decode cleanly
+            tr -d '\r\n ' < debug.keystore.base64 | base64 --decode > debug.keystore || base64 -d debug.keystore.base64 > debug.keystore
           elif [ -f "debug.keystore" ]; then
             echo "debug.keystore already exists."
           else
-            echo "No debug.keystore found."
+            echo "No debug.keystore base64 file found."
+          fi
+
+          if [ ! -f "debug.keystore" ] || [ ! -s "debug.keystore" ]; then
+            echo "Keystore is missing or empty. Auto-generating a robust fallback debug.keystore using keytool..."
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "Successfully verified debug.keystore is present and not empty."
           fi
 
       - name: Setup Gradle
