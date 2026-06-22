@@ -1,0 +1,6 @@
+{
+  "name": "Cut Pro",
+  "description": "A professional video editor with real-time editing features, including multi-track timeline, aspect ratio selection, video layers, transitions, effects, speed ramp, stickers, text animations, chroma key, and background removal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
